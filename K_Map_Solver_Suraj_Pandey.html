@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>K-Map Solver | SURAJ PANDEY</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:#f3f6fb;color:#172033}
+.header{background:#173b72;color:white;text-align:center;padding:22px 12px}
+.header h1{margin:0 0 7px;font-size:28px}
+.header h2{margin:0;font-size:18px;font-weight:500}
+.header p{margin:8px 0 0;font-size:14px}
+.card{max-width:900px;margin:22px auto;background:white;border-radius:14px;padding:22px;box-shadow:0 5px 20px #0001}
+h3{margin-top:0;color:#173b72}
+.row{display:flex;gap:15px;flex-wrap:wrap;align-items:end}
+.field{flex:1;min-width:180px}
+label{display:block;font-weight:bold;margin-bottom:7px}
+select,input{width:100%;padding:11px;border:1px solid #b8c2d1;border-radius:8px;font-size:16px}
+button{background:#173b72;color:white;border:0;padding:12px 22px;border-radius:8px;font-size:16px;font-weight:bold;cursor:pointer}
+button:hover{background:#0f2c58}
+.help{background:#eef4ff;padding:12px;border-radius:8px;margin:15px 0;font-size:14px}
+#message{margin-top:15px;font-weight:bold}
+.result{background:#f7fafc;border-left:5px solid #173b72;padding:15px;margin-top:18px}
+.expression{font-size:22px;font-weight:bold;color:#173b72;word-break:break-word}
+.kmap{margin-top:18px;overflow-x:auto}
+table{border-collapse:collapse;margin:auto}
+th,td{border:1px solid #718096;text-align:center;min-width:58px;height:48px}
+th{background:#dce7f7}
+td.one{background:#b9f6ca;font-weight:bold;color:#075b25}
+td.zero{background:#f5f5f5;color:#777}
+.note{font-size:13px;color:#586174;margin-top:12px}
+.footer{text-align:center;padding:15px;color:#667085;font-size:13px}
+@media(max-width:600px){.header h1{font-size:23px}.card{margin:12px;padding:16px}.expression{font-size:18px}}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>K-MAP SOLVER WEB APPLICATION</h1>
+  <h2>SURAJ PANDEY</h2>
+  <p>CV Raman Global University</p>
+  <p>Digital Electronics • Experiential Learning Task</p>
+</div>
+
+<div class="card">
+  <h3>Enter Boolean Function</h3>
+
+  <div class="help">
+    Enter minterms separated by commas. Example: <b>1,3,5,7</b><br>
+    For 3 variables, minterms are from 0 to 7. For 4 variables, use 0 to 15.
+  </div>
+
+  <div class="row">
+    <div class="field">
+      <label for="vars">Number of Variables</label>
+      <select id="vars">
+        <option value="2">2 Variables (A, B)</option>
+        <option value="3" selected>3 Variables (A, B, C)</option>
+        <option value="4">4 Variables (A, B, C, D)</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="minterms">Minterms</label>
+      <input id="minterms" type="text" value="1,3,5,7" placeholder="Example: 1,3,5,7">
+    </div>
+
+    <button onclick="solve()">SOLVE K-MAP</button>
+  </div>
+
+  <div id="message"></div>
+  <div id="output"></div>
+</div>
+
+<div class="card">
+  <h3>How K-Map Works</h3>
+  <p>1. Enter the number of variables.</p>
+  <p>2. Enter the minterm numbers.</p>
+  <p>3. Click <b>SOLVE K-MAP</b>.</p>
+  <p>4. The application fills the K-Map and displays a simplified Boolean expression.</p>
+</div>
+
+<div class="footer">
+  Developed by SURAJ PANDEY • CV Raman Global University
+</div>
+
+<script>
+function bits(n, width){
+  return n.toString(2).padStart(width,'0');
+}
+
+function gray(n){
+  return n ^ (n >> 1);
+}
+
+function termToText(pattern, vars){
+  const names = ['A','B','C','D'];
+  let parts=[];
+  for(let i=0;i<vars;i++){
+    if(pattern[i]==='-') continue;
+    parts.push(pattern[i]==='1' ? names[i] : names[i] + "'");
+  }
+  return parts.length ? parts.join('') : '1';
+}
+
+function canCombine(a,b){
+  let diff=0;
+  for(let i=0;i<a.length;i++){
+    if(a[i]!==b[i]){
+      if(a[i]==='-' || b[i]==='-') return false;
+      diff++;
+    }
+  }
+  return diff===1;
+}
+
+function combine(a,b){
+  let s='';
+  for(let i=0;i<a.length;i++) s += (a[i]===b[i] ? a[i] : '-');
+  return s;
+}
+
+function covers(pattern, n){
+  const b=bits(n,pattern.length);
+  for(let i=0;i<pattern.length;i++){
+    if(pattern[i]!=='-' && pattern[i]!==b[i]) return false;
+  }
+  return true;
+}
+
+function unique(arr){
+  return [...new Set(arr)];
+}
+
+function primeImplicants(mins, vars){
+  let groups={};
+  mins.forEach(m=>{
+    const p=bits(m,vars);
+    const ones=p.split('').filter(x=>x==='1').length;
+    (groups[ones] ||= []).push({p, mins:[m], used:false});
+  });
+
+  let primes=[];
+  while(Object.keys(groups).length){
+    let next={}, combinedAny=false;
+    const keys=Object.keys(groups).map(Number).sort((a,b)=>a-b);
+
+    for(let k=0;k<keys.length-1;k++){
+      const g1=groups[keys[k]], g2=groups[keys[k+1]];
+      for(const x of g1) for(const y of g2){
+        if(canCombine(x.p,y.p)){
+          combinedAny=true;
+          x.used=true; y.used=true;
+          const p=combine(x.p,y.p);
+          const ms=unique(x.mins.concat(y.mins)).sort((a,b)=>a-b);
+          const ones=p.split('').filter(z=>z==='1').length;
+          (next[ones] ||= []);
+          if(!next[ones].some(z=>z.p===p))
+            next[ones].push({p,mins:ms,used:false});
+        }
+      }
+    }
+
+    for(const k of Object.keys(groups))
+      for(const x of groups[k])
+        if(!x.used) primes.push(x.p);
+
+    groups=next;
+    if(!combinedAny) break;
+  }
+  return unique(primes);
+}
+
+function simplify(mins, vars){
+  if(mins.length===0) return '0';
+  const total=Math.pow(2,vars);
+  if(mins.length===total) return '1';
+
+  const primes=primeImplicants(mins,vars);
+  const cover={};
+  mins.forEach(m=>cover[m]=[]);
+  primes.forEach((p,i)=>{
+    mins.forEach(m=>{if(covers(p,m)) cover[m].push(i);});
+  });
+
+  let chosen=new Set();
+
+  // Essential prime implicants
+  mins.forEach(m=>{
+    if(cover[m].length===1) chosen.add(cover[m][0]);
+  });
+
+  function coveredByChosen(m){
+    for(const i of chosen) if(covers(primes[i],m)) return true;
+    return false;
+  }
+
+  let uncovered=mins.filter(m=>!coveredByChosen(m));
+  if(uncovered.length){
+    const remaining=primes.map((_,i)=>i).filter(i=>!chosen.has(i));
+    let best=null;
+
+    // Search small combinations for a minimum cover.
+    for(let size=1;size<=remaining.length && !best;size++){
+      function rec(start,arr){
+        if(best) return;
+        if(arr.length===size){
+          const all=uncovered.every(m =>
+            arr.some(i=>covers(primes[i],m))
+          );
+          if(all) best=arr.slice();
+          return;
+        }
+        for(let j=start;j<remaining.length;j++){
+          arr.push(remaining[j]);
+          rec(j+1,arr);
+          arr.pop();
+          if(best) return;
+        }
+      }
+      rec(0,[]);
+    }
+    if(best) best.forEach(i=>chosen.add(i));
+  }
+
+  const terms=[...chosen].map(i=>termToText(primes[i],vars));
+  // Put simpler terms first
+  terms.sort((a,b)=>a.replace(/'/g,'').length-b.replace(/'/g,'').length);
+  return terms.join(' + ');
+}
+
+function makeKMap(mins, vars){
+  let rows, cols, rowBits, colBits, rowLabel, colLabel;
+
+  if(vars===2){
+    rows=[0,1]; cols=[0,1];
+    rowBits=1; colBits=1;
+    rowLabel=r=>'A='+r;
+    colLabel=c=>'B='+c;
+  } else if(vars===3){
+    rows=[0,1]; cols=[0,1,3,2];
+    rowBits=1; colBits=2;
+    rowLabel=r=>'A='+r;
+    colLabel=c=>'BC='+bits(c,2);
+  } else {
+    rows=[0,1,3,2]; cols=[0,1,3,2];
+    rowBits=2; colBits=2;
+    rowLabel=r=>'AB='+bits(r,2);
+    colLabel=c=>'CD='+bits(c,2);
+  }
+
+  let html='<div class="kmap"><table><tr><th>K-Map</th>';
+  cols.forEach(c=>html+=`<th>${colLabel(c)}</th>`);
+  html+='</tr>';
+
+  rows.forEach(r=>{
+    html+=`<tr><th>${rowLabel(r)}</th>`;
+    cols.forEach(c=>{
+      let n;
+      if(vars===2) n=(r<<1)|c;
+      else if(vars===3) n=(r<<2)|c;
+      else n=(r<<2)|c;
+      const one=mins.includes(n);
+      html+=`<td class="${one?'one':'zero'}">${one?'1':'0'}<br><small>m${n}</small></td>`;
+    });
+    html+='</tr>';
+  });
+  html+='</table></div>';
+  return html;
+}
+
+function solve(){
+  const vars=parseInt(document.getElementById('vars').value);
+  const raw=document.getElementById('minterms').value.trim();
+  const msg=document.getElementById('message');
+  const out=document.getElementById('output');
+
+  if(!raw){
+    msg.textContent='Please enter minterms.';
+    msg.style.color='#b42318';
+    out.innerHTML='';
+    return;
+  }
+
+  let mins;
+  try{
+    mins=raw.split(',').map(x=>x.trim()).filter(x=>x!=='').map(Number);
+  }catch(e){
+    mins=[];
+  }
+
+  const max=Math.pow(2,vars)-1;
+  if(mins.some(x=>!Number.isInteger(x)||x<0||x>max)){
+    msg.textContent=`Please enter valid minterms from 0 to ${max}.`;
+    msg.style.color='#b42318';
+    out.innerHTML='';
+    return;
+  }
+
+  mins=unique(mins).sort((a,b)=>a-b);
+  const expression=simplify(mins,vars);
+
+  msg.textContent='K-Map solved successfully!';
+  msg.style.color='#067647';
+
+  out.innerHTML=`
+    <div class="result">
+      <div><b>Input Minterms:</b> Σm(${mins.join(', ')})</div>
+      <div style="margin-top:10px"><b>Simplified Boolean Expression:</b></div>
+      <div class="expression">F = ${expression}</div>
+    </div>
+    ${makeKMap(mins,vars)}
+    <div class="note">Green cells contain 1. The expression is simplified using Boolean/K-Map grouping logic.</div>
+  `;
+}
+
+solve();
+</script>
+</body>
+</html>
